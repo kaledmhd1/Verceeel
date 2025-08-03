@@ -5,7 +5,7 @@ from Crypto.Util.Padding import pad
 from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
-executor = ThreadPoolExecutor(max_workers=100)
+executor = ThreadPoolExecutor(max_workers=40)
 
 def Encrypt_ID(x):
     x = int(x)
@@ -76,51 +76,76 @@ def handle_like(uid, token):
             'Content-Type': 'application/x-www-form-urlencoded',
         }
 
-        with httpx.Client(verify=False) as client:
+        with httpx.Client(verify=False, timeout=10) as client:
             response = client.post(url, headers=headers, data=TARGET)
 
         if response.status_code == 200:
-            result_text = response.text.lower()
-            if "daily_limited_reached" in result_text:
-                return {"status": "daily_limited_reached"}
-            elif "success" in result_text or '"result":0' in result_text:
-                return {"status": "success"}
-            else:
-                return {"status": "unknown", "response": result_text}
+            try:
+                result = response.json()
+                stats = result.get("stats", {})
+                return {
+                    "details": {
+                        "response": response.text,
+                        "status": "ok"
+                    },
+                    "id": uid,
+                    "stats": {
+                        "daily_limited_reached": stats.get("daily_limited_reached", 0),
+                        "error": stats.get("error", 0),
+                        "success": stats.get("success", 0)
+                    }
+                }
+            except Exception:
+                return {
+                    "details": {
+                        "response": response.text,
+                        "status": "invalid_json"
+                    },
+                    "id": uid,
+                    "stats": {
+                        "daily_limited_reached": 0,
+                        "error": 1,
+                        "success": 0
+                    }
+                }
         else:
-            return {"status": "http_error", "code": response.status_code}
+            return {
+                "details": {
+                    "response": response.text,
+                    "status": f"http_{response.status_code}"
+                },
+                "id": uid,
+                "stats": {
+                    "daily_limited_reached": 0,
+                    "error": 1,
+                    "success": 0
+                }
+            }
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return {
+            "details": {
+                "response": str(e),
+                "status": "exception"
+            },
+            "id": uid,
+            "stats": {
+                "daily_limited_reached": 0,
+                "error": 1,
+                "success": 0
+            }
+        }
 
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({"message": "Free Fire Like Sender API is working."})
+@app.route('/send_like', methods=['POST'])
+def send_like():
+    data = request.json
+    uid = data.get("uid")
+    tokens = data.get("tokens")  # List of JWT tokens
 
-@app.route("/send_likes", methods=["POST"])
-def send_likes():
-    data = request.get_json()
-    uid = data.get("id")
-    tokens = data.get("tokens")
+    if not uid or not tokens:
+        return jsonify({"error": "Missing uid or tokens"}), 400
 
-    if not uid or not tokens or not isinstance(tokens, list):
-        return jsonify({"error": "id and list of tokens are required"}), 400
+    results = list(executor.map(lambda token: handle_like(uid, token), tokens))
+    return jsonify(results)
 
-    try:
-        uid = int(uid)
-    except ValueError:
-        return jsonify({"error": "id must be an integer"}), 400
-
-    futures = [executor.submit(handle_like, uid, token) for token in tokens]
-    results = [f.result() for f in futures]
-
-    stats = {
-        "success": sum(1 for r in results if r["status"] == "success"),
-        "daily_limited_reached": sum(1 for r in results if r["status"] == "daily_limited_reached"),
-        "error": sum(1 for r in results if r["status"] not in ["success", "daily_limited_reached"])
-    }
-
-    return jsonify({
-        "id": uid,
-        "stats": stats,
-        "details": results
-    })
+if __name__ == '__main__':
+    app.run(debug=True)

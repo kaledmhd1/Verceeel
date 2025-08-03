@@ -79,6 +79,10 @@ def handle_like(uid, token):
         with httpx.Client(verify=False) as client:
             response = client.post(url, headers=headers, content=TARGET)
 
+        # إذا كان الرد نصه فارغ نعتبر لايك ناجح
+        if not response.text.strip():
+            return {"status": "success", "response": "empty response but like probably sent"}
+
         try:
             result_json = response.json()
         except Exception:

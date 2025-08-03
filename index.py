@@ -73,13 +73,25 @@ def handle_like(uid, token):
             'X-Unity-Version': '2018.4.11f1',
             'X-GA': 'v1 1',
             'ReleaseVersion': 'OB50',
-            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Type': 'application/octet-stream',
         }
 
         with httpx.Client(verify=False) as client:
-            response = client.post(url, headers=headers, data=TARGET)
+            response = client.post(url, headers=headers, content=TARGET)
 
-        if response.status_code == 200:
+        try:
+            result_json = response.json()
+        except Exception:
+            result_json = None
+
+        if result_json:
+            if result_json.get("daily_limited_reached") or "daily_limited_reached" in str(result_json).lower():
+                return {"status": "daily_limited_reached"}
+            elif result_json.get("result") == 0 or result_json.get("success") is True:
+                return {"status": "success"}
+            else:
+                return {"status": "unknown", "response": result_json}
+        else:
             result_text = response.text.lower()
             if "daily_limited_reached" in result_text:
                 return {"status": "daily_limited_reached"}
@@ -87,8 +99,7 @@ def handle_like(uid, token):
                 return {"status": "success"}
             else:
                 return {"status": "unknown", "response": result_text}
-        else:
-            return {"status": "http_error", "code": response.status_code}
+
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -124,3 +135,5 @@ def send_like():
         "details": result
     })
 
+if __name__ == "__main__":
+    app.run()

@@ -96,31 +96,31 @@ def handle_like(uid, token):
 def home():
     return jsonify({"message": "Free Fire Like Sender API is working."})
 
-@app.route("/send_like", methods=["GET"])
-def send_like():
-    uid = request.args.get("id")
-    token = request.args.get("token")
+@app.route("/send_likes", methods=["POST"])
+def send_likes():
+    data = request.get_json()
+    uid = data.get("id")
+    tokens = data.get("tokens")
 
-    if not uid or not token:
-        return jsonify({"error": "id and token are required"}), 400
+    if not uid or not tokens or not isinstance(tokens, list):
+        return jsonify({"error": "id and list of tokens are required"}), 400
 
     try:
         uid = int(uid)
     except ValueError:
         return jsonify({"error": "id must be an integer"}), 400
 
-    future = executor.submit(handle_like, uid, token)
-    result = future.result()
+    futures = [executor.submit(handle_like, uid, token) for token in tokens]
+    results = [f.result() for f in futures]
 
     stats = {
-        "success": 1 if result["status"] == "success" else 0,
-        "daily_limited_reached": 1 if result["status"] == "daily_limited_reached" else 0,
-        "error": 1 if result["status"] not in ["success", "daily_limited_reached"] else 0
+        "success": sum(1 for r in results if r["status"] == "success"),
+        "daily_limited_reached": sum(1 for r in results if r["status"] == "daily_limited_reached"),
+        "error": sum(1 for r in results if r["status"] not in ["success", "daily_limited_reached"])
     }
 
     return jsonify({
         "id": uid,
         "stats": stats,
-        "details": result
+        "details": results
     })
-

@@ -5,7 +5,7 @@ from Crypto.Util.Padding import pad
 from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
-executor = ThreadPoolExecutor(max_workers=100)
+executor = ThreadPoolExecutor(max_workers=40)
 
 def Encrypt_ID(x):
     x = int(x)
@@ -80,18 +80,17 @@ def handle_like(uid, token):
             response = client.post(url, headers=headers, data=TARGET)
 
         if response.status_code == 200:
-    result_text = response.text.strip().lower()
-    
-    if not result_text:
-        # إذا كان الرد فارغ تماماً، نعتبره نجاح طالما لم يكن هناك خطأ
-        return {"status": "success", "response": result_text}
-
-    if "daily_limited_reached" in result_text:
-        return {"status": "daily_limited_reached", "response": result_text}
-    elif "success" in result_text or '"result":0' in result_text:
-        return {"status": "success", "response": result_text}
-    else:
-        return {"status": "unknown", "response": result_text}
+            result_text = response.text.lower()
+            if "daily_limited_reached" in result_text:
+                return {"status": "daily_limited_reached"}
+            elif "success" in result_text or '"result":0' in result_text:
+                return {"status": "success"}
+            else:
+                return {"status": "unknown", "response": result_text}
+        else:
+            return {"status": "http_error", "code": response.status_code}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 @app.route("/", methods=["GET"])
 def home():

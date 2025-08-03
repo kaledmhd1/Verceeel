@@ -76,76 +76,50 @@ def handle_like(uid, token):
             'Content-Type': 'application/x-www-form-urlencoded',
         }
 
-        with httpx.Client(verify=False, timeout=10) as client:
+        with httpx.Client(verify=False) as client:
             response = client.post(url, headers=headers, data=TARGET)
 
         if response.status_code == 200:
-            try:
-                result = response.json()
-                stats = result.get("stats", {})
-                return {
-                    "details": {
-                        "response": response.text,
-                        "status": "ok"
-                    },
-                    "id": uid,
-                    "stats": {
-                        "daily_limited_reached": stats.get("daily_limited_reached", 0),
-                        "error": stats.get("error", 0),
-                        "success": stats.get("success", 0)
-                    }
-                }
-            except Exception:
-                return {
-                    "details": {
-                        "response": response.text,
-                        "status": "invalid_json"
-                    },
-                    "id": uid,
-                    "stats": {
-                        "daily_limited_reached": 0,
-                        "error": 1,
-                        "success": 0
-                    }
-                }
+            result_text = response.text.lower()
+            if "daily_limited_reached" in result_text:
+                return {"status": "daily_limited_reached"}
+            elif "success" in result_text or '"result":0' in result_text:
+                return {"status": "success"}
+            else:
+                return {"status": "unknown", "response": result_text}
         else:
-            return {
-                "details": {
-                    "response": response.text,
-                    "status": f"http_{response.status_code}"
-                },
-                "id": uid,
-                "stats": {
-                    "daily_limited_reached": 0,
-                    "error": 1,
-                    "success": 0
-                }
-            }
+            return {"status": "http_error", "code": response.status_code}
     except Exception as e:
-        return {
-            "details": {
-                "response": str(e),
-                "status": "exception"
-            },
-            "id": uid,
-            "stats": {
-                "daily_limited_reached": 0,
-                "error": 1,
-                "success": 0
-            }
-        }
+        return {"status": "error", "error": str(e)}
 
-@app.route('/send_like', methods=['POST'])
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"message": "Free Fire Like Sender API is working."})
+
+@app.route("/send_like", methods=["GET"])
 def send_like():
-    data = request.json
-    uid = data.get("uid")
-    tokens = data.get("tokens")  # List of JWT tokens
+    uid = request.args.get("id")
+    token = request.args.get("token")
 
-    if not uid or not tokens:
-        return jsonify({"error": "Missing uid or tokens"}), 400
+    if not uid or not token:
+        return jsonify({"error": "id and token are required"}), 400
 
-    results = list(executor.map(lambda token: handle_like(uid, token), tokens))
-    return jsonify(results)
+    try:
+        uid = int(uid)
+    except ValueError:
+        return jsonify({"error": "id must be an integer"}), 400
 
-if __name__ == '__main__':
-    app.run(debug=True)
+    future = executor.submit(handle_like, uid, token)
+    result = future.result()
+
+    stats = {
+        "success": 1 if result["status"] == "success" else 0,
+        "daily_limited_reached": 1 if result["status"] == "daily_limited_reached" else 0,
+        "error": 1 if result["status"] not in ["success", "daily_limited_reached"] else 0
+    }
+
+    return jsonify({
+        "id": uid,
+        "stats": stats,
+        "details": result
+    })
